@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from hanas.config import Config
+from hanas.config import Config, load
 from hanas.daemon import MAX_QUEUE, Daemon
 from hanas.engine import EngineError, Voice
 
@@ -39,6 +39,40 @@ class DaemonStateTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "queue is full"):
             await self.daemon.submit({"text": "overflow", "enqueue": True})
         self.assertEqual(len(self.daemon.queue), MAX_QUEUE)
+
+    async def test_reloads_config_for_each_new_job(self):
+        config_path = Path(self.tmp.name) / "config.toml"
+        config_path.write_text('[engine]\nstyle_id=1\nspeed=1.0\n')
+        self.daemon.config_loader = lambda: load(str(config_path))
+        self.daemon.engine.voices = lambda: [
+            Voice("speaker", "one", 1),
+            Voice("speaker", "two", 2),
+        ]
+
+        first = await self.daemon.submit({"text": "A", "enqueue": True})
+        config_path.write_text(
+            '[engine]\nurl="http://localhost:50021"\nstyle_id=2\nspeed=1.5\n'
+        )
+        with patch("hanas.daemon.Engine") as engine_type:
+            engine_type.return_value.voices.return_value = [Voice("speaker", "two", 2)]
+            second = await self.daemon.submit({"text": "B", "enqueue": True})
+
+        self.assertEqual((first.style_id, first.speed), (1, 1.0))
+        self.assertEqual((second.style_id, second.speed), (2, 1.5))
+        self.assertIsNot(first.engine, second.engine)
+        engine_type.assert_called_once_with("http://localhost:50021")
+
+    async def test_recovers_after_reloaded_config_is_fixed(self):
+        config_path = Path(self.tmp.name) / "config.toml"
+        self.daemon.config_loader = lambda: load(str(config_path))
+        config_path.write_text("not toml")
+
+        with self.assertRaisesRegex(ValueError, "cannot read config"):
+            await self.daemon.submit({"text": "A", "enqueue": True})
+
+        config_path.write_text('[engine]\nstyle_id=1\n')
+        job = await self.daemon.submit({"text": "A", "enqueue": True})
+        self.assertEqual(job.style_id, 1)
 
     async def test_notifies_once_when_playback_starts(self):
         job = await self.daemon.submit({"text": "読み上げる文章", "enqueue": True})

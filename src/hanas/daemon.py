@@ -10,6 +10,7 @@ import tempfile
 import time
 import uuid
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,14 +37,21 @@ class Job:
     style_id: int
     speed: float
     generation: int
+    engine: Engine
     accepted: float = field(default_factory=time.monotonic)
     result: asyncio.Future[dict[str, Any]] | None = None
     started: bool = False
 
 
 class Daemon:
-    def __init__(self, config: Config, runtime: Path):
+    def __init__(
+        self,
+        config: Config,
+        runtime: Path,
+        config_loader: Callable[[], Config] | None = None,
+    ):
         self.config = config
+        self.config_loader = config_loader
         self.runtime = runtime
         self.wav_dir = runtime / "wav"
         self.engine = Engine(config.url)
@@ -61,6 +69,16 @@ class Daemon:
 
     def valid(self, job: Job) -> bool:
         return job.generation == self.generation and job.result is not None and not job.result.done()
+
+    def reload_config(self) -> None:
+        if self.config_loader is None:
+            return
+        config = self.config_loader()
+        if config.url != self.config.url:
+            self.engine = Engine(config.url)
+        if config != self.config:
+            LOG.info("reloaded configuration")
+        self.config = config
 
     async def notification(self, title: str, body: str = "", *, urgency: str = "normal") -> None:
         await asyncio.to_thread(notify, title, body, urgency=urgency)
@@ -114,6 +132,10 @@ class Daemon:
 
     async def submit(self, message: dict[str, Any]) -> Job:
         async with self.submit_lock:
+            try:
+                self.reload_config()
+            except ConfigError as exc:
+                raise RequestError(str(exc)) from None
             parts, style, speed = self.parse_job(message)
             enqueue = message.get("enqueue", False)
             if not isinstance(enqueue, bool):
@@ -126,7 +148,15 @@ class Daemon:
             if not enqueue:
                 await self.cancel_all()
             loop = asyncio.get_running_loop()
-            job = Job(uuid.uuid4().hex, parts, style, speed, self.generation, result=loop.create_future())
+            job = Job(
+                uuid.uuid4().hex,
+                parts,
+                style,
+                speed,
+                self.generation,
+                self.engine,
+                result=loop.create_future(),
+            )
             self.queue.append(job)
             self.wake.set()
             LOG.info("job=%s state=accepted chunks=%d", job.id, len(parts))
@@ -171,7 +201,7 @@ class Daemon:
     async def synth(self, job: Job, part: str) -> bytes:
         self.synthesizing = True
         try:
-            return await asyncio.to_thread(self.engine.synthesize, part, job.style_id, job.speed)
+            return await asyncio.to_thread(job.engine.synthesize, part, job.style_id, job.speed)
         finally:
             self.synthesizing = False
 
@@ -300,7 +330,7 @@ def runtime_paths() -> tuple[Path, Path, Path]:
     return runtime, runtime / "daemon.sock", runtime / "daemon.lock"
 
 
-async def serve(config: Config) -> None:
+async def serve(config: Config, config_loader: Callable[[], Config] | None = None) -> None:
     runtime, socket_path, lock_path = runtime_paths()
     runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(runtime, 0o700)
@@ -318,7 +348,7 @@ async def serve(config: Config) -> None:
                 old.unlink()
         with contextlib.suppress(FileNotFoundError):
             socket_path.unlink()
-        daemon = Daemon(config, runtime)
+        daemon = Daemon(config, runtime, config_loader)
         daemon.wav_dir = wav_dir
         server = await asyncio.start_unix_server(daemon.handle, path=socket_path, limit=MAX_MESSAGE + 1)
         os.chmod(socket_path, 0o600)

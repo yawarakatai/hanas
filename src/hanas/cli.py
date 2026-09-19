@@ -126,7 +126,7 @@ def run(args: argparse.Namespace) -> int:
         config = load(args.config)
         logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
         try:
-            asyncio.run(serve(config))
+            asyncio.run(serve(config, lambda: load(args.config)))
         except KeyboardInterrupt:
             pass
         return 0
