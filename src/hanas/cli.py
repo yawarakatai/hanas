@@ -16,6 +16,7 @@ from . import __version__
 from .config import ConfigError, load, valid_speed, valid_style_id
 from .daemon import MAX_MESSAGE, runtime_paths, serve
 from .engine import Engine, EngineError
+from .notification import notify
 from .text import MAX_BYTES, TextError, prepare
 
 
@@ -193,11 +194,14 @@ def main() -> None:
         code = run(parser().parse_args())
     except (TextError, ConfigError, ValueError) as exc:
         print(f"hanas: {exc}", file=sys.stderr)
+        notify("hanas の処理に失敗しました", str(exc), urgency="critical")
         code = 2
     except ConnectionError as exc:
         print(f"hanas: {exc}", file=sys.stderr)
+        notify("hanas の処理に失敗しました", str(exc), urgency="critical")
         code = 3
     except EngineError as exc:
         print(f"hanas: {exc}", file=sys.stderr)
+        notify("hanas の処理に失敗しました", str(exc), urgency="critical")
         code = 3 if exc.category == "connection" else 4
     raise SystemExit(code)

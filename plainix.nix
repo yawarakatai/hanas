@@ -8,6 +8,7 @@
   packages = [
     "basedpyright"
     "curl" # Engine の疎通確認用
+    "libnotify" # notify-send
     "pipewire" # pw-play
     "python3"
     "ruff"

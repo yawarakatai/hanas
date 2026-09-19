@@ -1,5 +1,6 @@
 {
   lib,
+  libnotify,
   makeWrapper,
   pipewire,
   python3Packages,
@@ -39,7 +40,7 @@ python3Packages.buildPythonApplication {
 
   postFixup = ''
     wrapProgram "$out/bin/hanas" \
-      --prefix PATH : ${lib.makeBinPath [ pipewire wl-clipboard ]}
+      --prefix PATH : ${lib.makeBinPath [ libnotify pipewire wl-clipboard ]}
   '';
 
   doCheck = true;

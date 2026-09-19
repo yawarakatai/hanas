@@ -16,6 +16,7 @@ from typing import Any
 
 from .config import Config, ConfigError, valid_speed, valid_style_id
 from .engine import Engine, EngineError
+from .notification import notify
 from .text import TextError, chunks, clean
 
 PROTOCOL = 1
@@ -37,6 +38,7 @@ class Job:
     generation: int
     accepted: float = field(default_factory=time.monotonic)
     result: asyncio.Future[dict[str, Any]] | None = None
+    started: bool = False
 
 
 class Daemon:
@@ -59,6 +61,9 @@ class Daemon:
 
     def valid(self, job: Job) -> bool:
         return job.generation == self.generation and job.result is not None and not job.result.done()
+
+    async def notification(self, title: str, body: str = "", *, urgency: str = "normal") -> None:
+        await asyncio.to_thread(notify, title, body, urgency=urgency)
 
     def finish(self, job: Job, state: str, error: str | None = None) -> None:
         if job.result is None or job.result.done():
@@ -146,6 +151,13 @@ class Daemon:
                     raise RuntimeError("could not start pw-play") from None
                 self.player = proc
                 self.playing = True
+                first_part = not job.started
+                job.started = True
+            if first_part:
+                preview = job.parts[0].replace("\n", " ")
+                if len(preview) > 120:
+                    preview = preview[:117] + "..."
+                await self.notification("読み上げを開始しました", preview)
             rc = await proc.wait()
             if self.valid(job) and rc != 0:
                 raise RuntimeError(f"pw-play exited with status {rc}")
@@ -193,10 +205,14 @@ class Daemon:
                 self.finish(job, "completed")
         except EngineError as exc:
             if self.valid(job):
-                self.finish(job, "failed", str(exc))
+                error = str(exc)
+                self.finish(job, "failed", error)
+                await self.notification("読み上げに失敗しました", error, urgency="critical")
         except Exception as exc:  # noqa: BLE001 -- one failed job must not stop the worker.
             if self.valid(job):
-                self.finish(job, "failed", str(exc) or "playback failed")
+                error = str(exc) or "playback failed"
+                self.finish(job, "failed", error)
+                await self.notification("読み上げに失敗しました", error, urgency="critical")
 
     async def worker(self) -> None:
         while not self.closing:
@@ -221,6 +237,7 @@ class Daemon:
         }
 
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        op: object = None
         try:
             try:
                 line = await asyncio.wait_for(reader.readline(), 5)
@@ -249,8 +266,12 @@ class Daemon:
             else:
                 raise RequestError("unknown operation")
         except RequestError as exc:
+            if op == "speak":
+                await self.notification("読み上げに失敗しました", str(exc), urgency="critical")
             await self.send(writer, {"ok": False, "kind": "input", "error": str(exc)})
         except EngineError as exc:
+            if op == "speak":
+                await self.notification("読み上げに失敗しました", str(exc), urgency="critical")
             kind = "connection" if exc.category == "connection" else "processing"
             await self.send(writer, {"ok": False, "kind": kind, "error": str(exc)})
         except (ConnectionError, BrokenPipeError):

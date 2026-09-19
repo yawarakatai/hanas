@@ -1,6 +1,6 @@
 # hanas
 
-選択範囲、クリップボード、標準入力、または引数の文章を AivisSpeech / VOICEVOX で読み上げる Linux 向けツールです。daemon がキューと `pw-play` を一元管理します。Python 3.11 以上、Wayland の入力取得には `wl-paste`、再生には PipeWire の `pw-play` が必要です。
+選択範囲、クリップボード、標準入力、または引数の文章を AivisSpeech / VOICEVOX で読み上げる Linux 向けツールです。daemon がキューと `pw-play` を一元管理します。Python 3.11 以上、Wayland の入力取得には `wl-paste`、再生には PipeWire の `pw-play`、デスクトップ通知には `notify-send` が必要です。
 
 ## 開発環境
 
@@ -12,7 +12,7 @@ uv sync
 uv run hanas --help
 ```
 
-`nix develop` には Python、`uv`、`wl-paste`、`pw-play` が含まれます。hanas 自体の Python 実行時依存は標準ライブラリだけです。
+`nix develop` には Python、`uv`、`wl-paste`、`pw-play`、`notify-send` が含まれます。hanas 自体の Python 実行時依存は標準ライブラリだけです。
 
 ## AivisSpeech Engine で検証する
 
@@ -85,9 +85,13 @@ style_id = 1878365378
 speed = 1.0
 ```
 
-別のモデルを利用するときは `hanas voices` の先頭列を確認して `style_id` を変更してください。
+別のモデルを利用するときは `hanas voices` の先頭列を確認して `style_id` を変更してください。`style_id` と `speed` はすべての読み上げの既定値になり、必要な場合だけ `speak` のオプションで一時的に上書きできます。
 
 スタイル未設定でも daemon と `voices` は起動できますが、`speak` は明示的な `--style-id` がなければ拒否されます。設定変更後は daemon を再起動します。
+
+## デスクトップ通知
+
+再生開始時と、入力・Engine接続・音声合成・再生の失敗時にデスクトップ通知を表示します。通知の失敗によって読み上げが失敗することはありません。Nixパッケージには通知用の `notify-send` が含まれます。
 
 ## 利用方法
 
