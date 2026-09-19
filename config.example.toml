@@ -1,0 +1,5 @@
+[engine]
+url = "http://127.0.0.1:10101"
+# `hanas voices` で確認したスタイル ID を指定してください。
+# style_id = 123
+speed = 1.0

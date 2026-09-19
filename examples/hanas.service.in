@@ -1,0 +1,15 @@
+[Unit]
+Description=hanas text-to-speech daemon
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@hanas@ daemon
+Restart=on-failure
+RestartSec=2
+UMask=0077
+RuntimeDirectory=hanas
+RuntimeDirectoryMode=0700
+
+[Install]
+WantedBy=graphical-session.target

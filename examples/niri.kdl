@@ -1,0 +1,5 @@
+binds {
+    Mod+Shift+R repeat=false { spawn "hanas" "speak" "--selection"; }
+    Mod+Shift+C repeat=false { spawn "hanas" "speak" "--clipboard"; }
+    Mod+Shift+X repeat=false { spawn "hanas" "stop"; }
+}
